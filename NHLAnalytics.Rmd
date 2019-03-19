@@ -1,0 +1,249 @@
+---
+title: "NHLAnalytics"
+author: "Brett Wiens"
+date: "October 18, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(ggplot2); library(png); library(grid); library(plyr)
+```
+
+## Starting from a full list of NHL plays from the 2017/18 Season
+
+
+
+```{r Read in the Plays and clean them up}
+AllPlays <- readRDS('FullPlay.RDS')
+
+source('AllPlaysCleanup.R')  ## Clean up the plays, make one-sided
+source('ZoneDefinition.R')   ## Define the zones for analytical comparison
+source('ArenaDrawing.R')     ## Draw the full arena in ggplot and the one-sided arena
+source('PlayerInfo.R')       ## Collect supplemental information about each player
+
+# PlayerInfo <- GetPlayerInfo(unique(AllPlays$player.link1))
+# playerJoinInfo <- PlayerInfo[,c("people.id", "people.shootsCatches", "people.primaryPosition.code")]
+# names(playerJoinInfo) <- c("player.id1", "people.shootsCatches", "people.primaryPosition.code")
+# 
+# for(i in 1:nrow(AllPlays)){
+#    AllPlays$ZoneName[i] <- ZoneDefinition(AllPlays$OneSidex[i],AllPlays$OneSidey[i])
+# }
+# #
+# # AllPlays <- AllPlays[!is.na(AllPlays$x),]
+# #
+# # for(i in 1:nrow(AllPlays)){
+# #    if(AllPlays$x[i] < 0) AllPlays$OneSidey[i] <- -1 * AllPlays$y[i]
+# #    if(AllPlays$x[i] >= 0) AllPlays$OneSidey[i] <- AllPlays$y[i]
+# # }
+# #
+# AllPlays <- join(AllPlays,playerJoinInfo,by = 'player.id1')
+# saveRDS(AllPlays, 'FullPlay.RDS')
+# 
+# AllPlays$OneSidex <- abs(AllPlays$x)  ## Turn all the plays onto one side of the ice.  
+```
+
+## Plots
+
+NHL Plots look a lot nicer when they look like the ice surface.
+
+```{r Plotting Functions, include=FALSE}
+
+DensityRinkPlot <- function(PlotData, TeamName, Action, Logo){
+   ggplot2::ggplot(data = PlotData, mapping = aes(x=x, y=y)) +
+      
+      stat_density_2d(aes(fill = ..density.., alpha = ..density..), geom = 'tile', contour = F) +
+      scale_fill_gradient(low = "#FFFFFF", high = "#CC0000") +
+      stat_density2d(colour = 'black', alpha = 0.6, bins = 12) +
+      geom_point(alpha = 0.9, pch = 4, size = 1.2) +
+      Full.Arena$layers  + 
+      annotation_custom(Logo, xmin=-8, xmax=8, ymin=-8, ymax = 8) + 
+      theme_bw() + theme(legend.position = 'none', axis.text.x = element_blank(), axis.text.y = element_blank(),
+      axis.title = element_blank(), axis.ticks = element_blank(), panel.border = element_blank(), panel.grid.major = element_blank(),
+         panel.grid.minor = element_blank()) +
+      geom_point(aes(x = 0, y = 0), size = 25, colour = "blue", shape = 1) ## Centre Ice (Not Regulated)
+}
+
+OneSideDensityRinkPlot <- function(PlotData, TeamName, Action, Logo){
+   ggplot2::ggplot(data = PlotData, mapping = aes(x=OneSidex, y=OneSidey)) +
+      
+      stat_density_2d(aes(fill = ..density.., alpha = ..density..), geom = 'tile', contour = F) +
+      scale_fill_gradient(low = "#FFFFFF", high = "#CC0000") +
+      stat_density2d(colour = 'black', alpha = 0.6, bins = 12) +
+      geom_point(alpha = 0.9, pch = 4, size = 1.2) +
+      One.Side.Arena$layers  + 
+      annotation_custom(Logo, xmin=-8, xmax=8, ymin=-8, ymax = 8) +
+      theme_bw() + theme(legend.position = 'none', axis.text.x = element_blank(), axis.text.y = element_blank(),
+      axis.title = element_blank(), axis.ticks = element_blank(), panel.border = element_blank(), panel.grid.major = element_blank(),
+         panel.grid.minor = element_blank()) +
+      geom_point(aes(x = 0, y = 0), size = 25, colour = "blue", shape = 1) ## Centre Ice (Not Regulated)
+}
+
+```
+
+## Team-by-team Analysis of Goals and Shots (Two and One-Sided)
+
+```{r TeamPlays}
+allGamePlays2 <- AllPlays[!is.na(AllPlays$name),]
+teamNames <- unique(allGamePlays2$name)
+teamTri <- unique(allGamePlays2$triCode)
+
+TeamGoalsPlots <- list()
+TeamShotsPlots <- list()
+TeamGoalsPlots_OS <- list()
+TeamShotsPlots_OS <- list()
+
+for(i in 1:length(teamNames)){
+      
+   currentTeamLogo <- rasterGrob(readPNG(paste0("./TeamLogos/",teamTri[i],".png")), interpolate = TRUE)
+   
+   currentTeamPlays <- allGamePlays2[allGamePlays2$name == teamNames[i],]
+   #currentTeamHits <- currentTeamPlays[currentTeamPlays$event == "Hit",]
+   currentTeamShots <- currentTeamPlays[grepl("Shot",currentTeamPlays$event),]
+   currentTeamGoals <- currentTeamPlays[currentTeamPlays$event == "Goal",]
+   
+   #currentTeamHitsPlot <- DensityRinkPlot(currentTeamHits)
+   currentTeamShotsPlot <- DensityRinkPlot(currentTeamShots, teamNames[i], "Shots", currentTeamLogo)
+   currentTeamGoalsPlot <- DensityRinkPlot(currentTeamGoals, teamNames[i], "Goals", currentTeamLogo)
+   
+   currentTeamShotsPlot.OneSide <- OneSideDensityRinkPlot(currentTeamShots, teamNames[i], "Shots", currentTeamLogo)
+   currentTeamGoalsPlot.OneSide <- OneSideDensityRinkPlot(currentTeamGoals, teamNames[i], "Goals", currentTeamLogo)
+   teamNames[i]
+   
+   TeamGoalsPlots[[i]] <- currentTeamGoalsPlot
+   TeamShotsPlots[[i]] <- currentTeamShotsPlot
+   TeamGoalsPlots_OS[[i]] <- currentTeamGoalsPlot.OneSide
+   TeamShotsPlots_OS[[i]] <- currentTeamShotsPlot.OneSide
+}
+
+names(TeamGoalsPlots) <- teamTri
+names(TeamGoalsPlots_OS) <- teamTri
+names(TeamShotsPlots) <- teamTri
+names(TeamShotsPlots_OS) <- teamTri
+
+```
+
+
+```{r Save, eval=FALSE, include=FALSE}
+for(i in 1:31){
+   ggsave(paste0("./Teams/",teamNames[i],'_Goals.png'), plot = TeamGoalsPlots[[i]], 
+          device = 'png', width = 200, height = 85, units = "mm", dpi = 180)
+   ggsave(paste0("./Teams/",teamNames[i],'_Shots.png'), plot = TeamShotsPlots[[i]], 
+          device = 'png', width = 200, height = 85, units = "mm", dpi = 180)
+   ggsave(paste0("./Teams/",teamNames[i],'_OneSide_Goals.png'), plot = TeamGoalsPlots_OS[[i]], 
+          device = 'png', width = 100, height = 85, units = "mm", dpi = 180)
+   ggsave(paste0("./Teams/",teamNames[i],'_OneSide_Shots.png'), plot = TeamShotsPlots_OS[[i]], 
+          device = 'png', width = 100, height = 85, units = "mm", dpi = 180)
+}
+```
+
+
+```{r Zone Summary Statistics}
+
+Zone_Summary <- function(PlaysetNoun = "All", Identifier, PlotType = "None"){
+   if(PlaysetNoun == "All" | is.null(PlaysetNoun)){
+      Playset <- AllPlays
+   } else if(PlaysetNoun == "Team"){
+      Playset <- AllPlays[AllPlays$triCode == Identifier,]
+   } else if(PlaysetNoun == "Player"){
+      Playset <- AllPlays[AllPlays$player.fullName1 == Identifier,]
+   } else if(PlaysetNoun == "Position"){
+      Playset <- AllPlays[AllPlays$people.primaryPosition.code == Identifier,]
+   }
+   
+   Shots <- Playset[grepl("Shot",Playset$event),]
+   Goals <- Playset[Playset$event == 'Goal',]
+   
+   ShotZoneSummary <- as.data.frame(table(Shots$ZoneName))
+   GoalZoneSummary <- as.data.frame(table(Goals$ZoneName))
+   
+   names(ShotZoneSummary) <- c("Zone","Shots")
+   names(GoalZoneSummary) <- c("Zone","Goals")
+   
+   ZoneSummary <- merge(ShotZoneSummary,GoalZoneSummary, by = "Zone")
+   names(ZoneSummary) <- c("Zone","Shots","Goals")
+   
+   ZoneSummary$`Shooting Percentage` <- ZoneSummary$Goals/ZoneSummary$Shots*100
+   ZoneSummary$Label <- paste0(ZoneSummary$Goals, "/", ZoneSummary$Shots)
+   
+   zoneShooting <- join(zone, ZoneSummary, by = "Zone")
+   zoneShootingLabels <- join(ZoneLabels, ZoneSummary, by = "Zone")
+   
+   if(PlaysetNoun == "All"){
+      LeagueAverages <- zoneShooting
+   } else if(PlaysetNoun == "Position" & Identifier == "R"){
+      RWAverages <<- zoneShooting
+   } else if(PlaysetNoun == "Position" & Identifier == "L"){
+      LWAverages <<- zoneShooting
+   } else if(PlaysetNoun == "Position" & Identifier == "C"){
+      CAverages <<- zoneShooting
+   } else if(PlaysetNoun == "Position" & Identifier == "D"){
+      DAverages <<- zoneShooting
+   }
+   
+   if(PlotType != "None"){
+      ShootingStatisticsPlots(zoneShooting,zoneShootingLabels, PlotType)
+   }
+}
+```
+
+```{r Ensure All Averages Calculated}
+
+Zone_Summary("All")
+   saveRDS(LeagueAverages,"LeagueAverages.RDS") 
+Zone_Summary("Position","L")
+   saveRDS(LWAverages,"LWAverages.RDS")
+Zone_Summary("Position","R")
+   saveRDS(RWAverages,"RWAverages.RDS")
+Zone_Summary("Position","C")
+   saveRDS(CAverages,"CAverages.RDS")
+Zone_Summary("Position","D")
+   saveRDS(DAverages,"DAverages.RDS")
+
+```
+
+```{r Plots for Shooting Statistics}
+
+ShootingStatisticsPlots <- function(zoneShooting,zoneShootingLabels,PlotType){
+
+   if(PlotType == "Shooting Percentage"){
+      #print("Shooting Percentage")
+      SSPlot <- ggplot(zoneShooting, aes(x = x, y = y)) +
+         geom_polygon(aes(fill = `Shooting Percentage`, group = Zone), colour = "black", alpha = 0.8) +
+         One.Side.Arena$layers +
+         geom_label(data = zoneShootingLabels, aes(label = zoneShootingLabels$Label, x = X, y = Y, fill = `Shooting Percentage`), size = 2, colour = "black") +
+         scale_fill_distiller(type = "div", palette = 7, direction = 1) +
+               theme_bw() + theme(axis.text.x = element_blank(), axis.text.y = element_blank(),
+            axis.title = element_blank(), axis.ticks = element_blank(), panel.border = element_blank(), panel.grid.major = element_blank(),
+               panel.grid.minor = element_blank())
+   }
+   if(PlotType == "Shots"){
+      #print("Shots")
+      SSPlot <- ggplot(zoneShooting, aes(x = x, y = y)) +
+         geom_polygon(aes(fill = zoneShooting$Shots, group = Zone), colour = "black", alpha = 0.8) +
+         One.Side.Arena$layers +
+         geom_label(data = zoneShootingLabels, aes(label = zoneShootingLabels$Shots, x = X, y = Y, fill = zoneShootingLabels$Shots), size = 2, colour = "black") +
+         scale_fill_distiller(type = "seq", palette = 10, direction = 1) +
+               theme_bw() + theme(axis.text.x = element_blank(), axis.text.y = element_blank(),
+            axis.title = element_blank(), axis.ticks = element_blank(), panel.border = element_blank(), panel.grid.major = element_blank(),
+               panel.grid.minor = element_blank())
+   }
+   if(PlotType == "Goals"){
+      #print("Goals")
+      SSPlot <- ggplot(zoneShooting, aes(x = x, y = y)) +
+         geom_polygon(aes(fill = zoneShooting$Goals, group = Zone), colour = "black", alpha = 0.8) +
+         One.Side.Arena$layers +
+         geom_label(data = zoneShootingLabels, aes(label = zoneShootingLabels$Goals, x = X, y = Y, fill = zoneShootingLabels$Goals), size = 2, colour = "black") +
+         scale_fill_distiller(type = "seq", palette = 10, direction = 1) +
+               theme_bw() + theme(axis.text.x = element_blank(), axis.text.y = element_blank(),
+            axis.title = element_blank(), axis.ticks = element_blank(), panel.border = element_blank(), panel.grid.major = element_blank(),
+               panel.grid.minor = element_blank())
+   }   
+   
+   return(SSPlot)
+   
+   }
+
+
+```
